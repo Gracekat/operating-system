@@ -1,0 +1,87 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/time.h>
+#include <stdint.h>
+
+#define NUM_EXCHANGES 100000
+
+static double elapsed(struct timeval *start, struct timeval *end)
+{
+    return (end->tv_sec  - start->tv_sec) +
+           (end->tv_usec - start->tv_usec) / 1e6;
+}
+
+int main(void)
+{
+    int pipe_a[2];   /* parent -> child */
+    int pipe_b[2];   /* child  -> parent */
+
+    if (pipe(pipe_a) < 0 || pipe(pipe_b) < 0) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) {
+        close(pipe_a[1]);  
+        close(pipe_b[0]);  
+
+        unsigned char byte;
+        for (int i = 0; i < NUM_EXCHANGES; i++) {
+            if (read(pipe_a[0], &byte, 1) != 1) {
+                perror("child read");
+                exit(EXIT_FAILURE);
+            }
+            if (write(pipe_b[1], &byte, 1) != 1) {
+                perror("child write");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        close(pipe_a[0]);
+        close(pipe_b[1]);
+        exit(EXIT_SUCCESS);
+    }
+
+    close(pipe_a[0]);  
+    close(pipe_b[1]);  
+
+    struct timeval t_start, t_end;
+    gettimeofday(&t_start, NULL);
+
+    unsigned char byte = 0x42;   
+    for (int i = 0; i < NUM_EXCHANGES; i++) {
+        if (write(pipe_a[1], &byte, 1) != 1) {
+            perror("parent write");
+            exit(EXIT_FAILURE);
+        }
+        if (read(pipe_b[0], &byte, 1) != 1) {
+            perror("parent read");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    gettimeofday(&t_end, NULL);
+
+    close(pipe_a[1]);
+    close(pipe_b[0]);
+    wait(NULL);
+
+    double secs   = elapsed(&t_start, &t_end);
+    double exps   = NUM_EXCHANGES / secs;
+    double latency_us = (secs / NUM_EXCHANGES) * 1e6;
+
+    printf("Exchanges      : %d\n", NUM_EXCHANGES);
+    printf("Total time     : %.4f seconds\n", secs);
+    printf("Throughput     : %.0f exchanges/second\n", exps);
+    printf("Latency/round  : %.2f microseconds\n", latency_us);
+
+    return EXIT_SUCCESS;
+}
