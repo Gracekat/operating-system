@@ -12,6 +12,8 @@ struct cpu {
 
 extern struct cpu cpus[NCPU];
 extern int ncpu;
+extern int total_ticks;
+extern int times_scheduled;
 
 //PAGEBREAK: 17
 // Saved registers for kernel context switches.
@@ -40,6 +42,8 @@ struct proc {
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state
+  int priority;		       // 0 = high, 1 = mid, 2 = low
+  int ticks;                   // Time used in current queue
   int pid;                     // Process ID
   struct proc *parent;         // Parent process
   struct trapframe *tf;        // Trap frame for current syscall

@@ -7,6 +7,11 @@
 #include "proc.h"
 #include "spinlock.h"
 
+int boost_interval = 100;
+int global_ticks = 0;
+
+int time_slices[] = {1, 2, 4, 8};
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -88,7 +93,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-
+  p->priority = 0;        // New Line
+  p->ticks = 0;           // New Line
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -332,9 +338,11 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+
+    for(int level = 0; level < 4; level++){
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state != RUNNABLE || p->priority != level)
+                continue;
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -349,6 +357,7 @@ scheduler(void)
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
+     }
     }
     release(&ptable.lock);
 

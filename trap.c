@@ -8,6 +8,17 @@
 #include "traps.h"
 #include "spinlock.h"
 
+extern int global_ticks;
+extern int boost_interval;
+extern int time_slices[];
+
+int time_slicers [3] = {1, 2, 4};
+
+extern struct {
+   struct spinlock lock;
+   struct proc proc[NPROC];
+} ptable;
+
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
@@ -48,10 +59,54 @@ trap(struct trapframe *tf)
 
   switch(tf->trapno){
   case T_IRQ0 + IRQ_TIMER:
+
+     if(myproc() && myproc()->state == RUNNING){
+        struct proc *p = myproc();
+        p->ticks++;
+
+     if(p->ticks >= time_slices[p->priority]){
+        p->ticks = 0;
+
+        if(p->priority < 3)
+	  p->priority++;
+
+	yield();
+       }
+    }
+
     if(cpuid() == 0){
       acquire(&tickslock);
       ticks++;
       wakeup(&ticks);
+
+    global_ticks++;
+
+    if(global_ticks >= boost_interval){
+	global_ticks = 0;
+
+	acquire(&ptable.lock);
+	struct proc *p;
+	for(p = ptable.proc; p< &ptable.proc[NPROC]; p++){
+	  if(p->state != UNUSED){
+	     p->priority = 0;
+	     p->ticks = 0;
+	   }
+	}
+	release(&ptable.lock);
+      }
+
+    struct cpu *c = mycpu();
+
+      if(c->proc && c->proc->state == RUNNING){
+    c->proc->ticks++;  // increment ticks used in current queue
+
+    if(c->proc->ticks >= time_slicers[c->proc->priority]){
+        if(c->proc->priority < 2)   // demote if not already lowest
+            c->proc->priority++;
+        c->proc->ticks = 0;          // reset ticks
+    }
+}
+
       release(&tickslock);
     }
     lapiceoi();
